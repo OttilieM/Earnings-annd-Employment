@@ -1,0 +1,645 @@
+---
+title: "Analysis of Social Factors Affecting US Earnings: 1995-2020"
+author: "Ottilie Mitchell - 20318500"
+date: "14/04/2021"
+output: pdf_document
+---
+
+https://github.com/OttilieM/Earnings-annd-Employment
+
+# Background
+Income inequality is defined as a measure of the variation of earnings between different individual’s gender, ethnicity, race and age (OECD, 2020).  Levels of poverty indicate a sectors inability to access goods and services that most people consider necessary for an acceptable standard of living. Inequality refers to the difference in living standards and income across the whole economic divide and can be found in a society without high levels of poverty, such as the United State (US), due to a large difference between the top and the middle of the income spectrum (Dabla-Norris, *et al*., 2015).
+
+In the US, gender-based pay discrimination has been illegal since 1963, however, it is still a widespread practice. Equal opportunities improved in the 20th century through education (Baker, 2016), with genders and ethnic groups benefiting from the same educational opportunities and it is now more accepted that there is an equal division of housework and childcare.  Despite these dramatic changes, large gaps remain within educational attainment in minority African-American and Hispanic-Latino groups, who are often segregated by ethnicity and race and are more likely to attend high-poverty schools than Asian-Americans and Caucasians  (National Center for Education Statistics, 2015). This sector often experiences not only low levels of educational attainment, but low economic development and poor health.
+
+The US has undergone several periods of depression over the last century, including the 2008-2010 financial crisis when approximately 8.7 million jobs were lost, with real GDP contracting by 4.2% (Long and Van Dam, 2020).  Unemployment rates did not recover to their previous rate until May 2014. The most recent depression is on-going, with a record low of 20.5m abrupt job losses being recorded in April 2020 due to the Covid-19 pandemic (Fowers, 2020).  
+
+This report provides an analysis of a range of factors affecting earnings such as age, gender, ethnicity and racial group, details on how the gender pay gap has changed over time, and how the Covid-19 pandemic influenced job losses.
+
+## Objectives
+
+* Which factors have the most impact on earnings?
+
+* How have earnings between men and women changed over time?
+
+* Which factors influenced job losses during the Covid-19 pandemic?
+
+\newpage
+
+# Data
+
+### Data Description
+Data was sourced from a TidyTueday on Github. The data was originally collected from the US Bureau of Labor Statistics (2021) 2010-2020 with additional data added to increase the time span to 1995-2020. Data can be found on my GitHub page: (https://github.com/OttilieM/Earnings-annd-Employment) 
+
+The data was pulled from 2 datasets, representing employment and earnings in the US.
+
+The employment data set is made up of 8184 rows and 7 variables. The variables include:
+
+* Year – year 2015-2020
+
+* Industry – industrial group
+
+* Major_occupation – major occupation category
+
+* Minor_occupation – minor occupation category
+
+* Race_gender – race and gender group
+
+* Industry_total – total employed in each industry 
+
+* Employ_n – number employed
+
+
+The earnings dataset is made up of 4341 rows and 8 variables. The variables include:
+
+* Year – year 1995-2020
+
+* Sex – men, women and both sexes
+
+* Race – racial group
+
+* Ethnic_origin – ethnic origin (Hispanic or non-Hispanic)
+
+* Age – age group
+
+* Quarter – yearly quarter
+
+* N_persons – number of persons employed by group
+
+* Median_weekly_earn – median weekly earnings in current US dollar
+
+
+### Data Preparation
+Spark was used to demonstrate how data can be stored remotely, however, due to storage issues, datasets had to be significantly reduced before loading them into Spark. 
+
+Both datasets were downloaded, cleaned by removing missing data and data wrangling was undertaken. 
+
+```{r, echo=FALSE, include=FALSE}
+#load libraries
+library("tidytuesdayR")
+library(tidyverse)
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(forcats)
+library(scales)
+library(ggalt)
+library(plotly)
+library(caret)
+library(leaps)
+library(randomForest)
+library(readr)  
+library(viridis)
+library(hrbrthemes)
+library(rmarkdown)
+library(vip)
+
+#load data
+urlfile <- "https://raw.githubusercontent.com/OttilieM/Earnings-annd-Employment/main/earn.csv"
+
+earn <- read.csv(url(urlfile))
+
+employed <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-02-23/employed.csv')
+```
+
+Using the dplyr package, a number of inputs were removed from the industry column in the employment data, as these were not relevant using the filter() function. The size of the data frame was reduced further by removing the columns for major and minor occupation, removing rows in race_gender equal to “TOTAL” and filtered by year to only include 2019 and 2020 data. This reduced the employed dataset to 2090 observations and 5 variables.
+
+```{r, echo=FALSE, include=FALSE}
+# Data wrangling (laptop run out of space)
+
+#these are not industries so need to be removed
+
+employed1 <- employed %>%
+  filter(industry!= "Women")
+
+employed1 <- employed1 %>%
+  filter(industry!= "Men")
+
+employed1 <- employed1 %>%
+  filter(industry!= "Asian")
+
+employed1 <- employed1 %>%
+  filter(industry!= "Black or African American")
+
+employed1 <- employed1 %>%
+  filter(industry!= "White")
+
+#these are not necessary for my research
+employed1 <- employed1 %>%
+  filter(race_gender!= "TOTAL")
+
+employed1 <- employed1[,-c(2,3)]
+
+employed1 <- employed1 %>%
+  filter(year == 2019|year == 2020)
+
+employed1$industry = as.factor(employed1$industry)
+
+employed1 %>%
+mutate(industry = fct_reorder(industry, industry_total))
+
+```
+
+A new dataset named “covid” was created by adding a new variable to show the difference in number employed from 2019 to 2020 in each of the industries. The group_by() and summarise() functions were used together to create an average for the number employed in each industry in 2019 and 2020. The 2019 and 2020 datasets were merged by industry, and a new column created using the mutate() function to show the difference in employment over the covid period. This dataset was made up of 19 observations and 4 variables.
+
+```{r, echo=FALSE, include=FALSE}
+#new dataset just looking at the impact of covid
+covid_before <- employed1 %>%
+  filter(year == 2019)
+
+covid_before <- covid_before %>%
+  mutate(industry = fct_reorder(industry, industry_total)) %>%
+  group_by(industry) %>%
+  summarise(before_total = mean(industry_total))
+
+
+covid_after <- employed1 %>%
+  filter(year == 2020)
+
+covid_after <- covid_after %>%
+  mutate(industry = fct_reorder(industry, industry_total)) %>%
+  group_by(industry) %>%
+  summarise(after_total = mean(industry_total))
+
+covid <- merge(covid_before, covid_after, by = "industry")
+
+
+covid <- covid %>%
+  mutate(difference = (before_total - after_total)) %>%
+  mutate(industry = fct_reorder(industry, difference))
+```
+
+The earn dataset was used to create a new data frame named “gender”. This filtered the earn dataset to only include men and women, quarter 1, all ages over 16, all races and all origins. This dataset was made up of 52 observations and 8 variables.
+
+```{r, echo=FALSE, include=FALSE}
+#new dataset looking at men and womens earnings
+gender <- earn
+
+gender <- gender %>%
+  filter(sex == "Women"| sex == "Men", quarter == "1", age == "16 years and over", race == "All Races", ethnic_origin == "All Origins")
+```
+
+The gender dataset was then used to create a new dataset showing the difference in earnings between men and women over a period of twenty-five years. Two subsets for men and women were created, renaming the median_weekly_earn column to differentiate between men and women’s earnings. The separate datasets were then merged by years, and the difference in earnings was calculated using the mutate() function. This included 26 observations and 16 variables.
+
+```{r, echo=FALSE, include=FALSE}
+W <- gender %>% 
+  filter(sex == "Women", age == "16 years and over", race == "All Races", ethnic_origin == "All Origins")
+
+
+W <- rename(W, weekly_earn_W = median_weekly_earn)
+
+M <- gender %>% 
+  filter(sex == "Men", age == "16 years and over", race == "All Races", ethnic_origin == "All Origins")
+
+M <- rename(M, weekly_earn_M = median_weekly_earn)
+
+M_W <- merge(M, W, by = "year")
+
+M_W <- M_W %>%
+  mutate(wage_diff = (weekly_earn_M - weekly_earn_W))
+```
+
+Once reduced dataset were prepared, the Sparklyr library was loaded and a Spark connection was initiated. Spark allows data to be stored remotely from your local device. All the datasets were loaded into Spark using the copy_to() function, which is part of the dplyr library.
+
+```{r, echo=FALSE, include=FALSE}
+# Required for Spark
+library(sparklyr)
+
+# Instantiate Spark
+sc <- spark_connect(master = "local", version = "2.3")
+
+
+
+#copy datasets to spark
+employed1 <- copy_to(sc, employed1)
+earn <- copy_to(sc, earn)
+covid <- copy_to(sc, covid)
+gender <- copy_to(sc, gender)
+M_W <- copy_to(sc, M_W)
+```
+
+\newpage
+
+# Methods
+
+### EDA
+The cleaned earnings dataset underwent some EDA, as a first look at the data and preliminary analysis to determine how many variables should be looked at to determine median weekly earnings. This was carried out using the regsubset() function, concluding that all variables were significant.
+```{r, echo=FALSE, include=FALSE}
+#number of observations
+count(earn) #4341
+count(employed1) #2090
+count(covid) #19
+count(M_W) #26
+
+# look at means values
+summarise_all(earn, mean) #median weekly earn = 757.7699
+summarise_all(employed1, mean) #employed_n = 365423
+```
+
+
+```{r, echo=FALSE, include=FALSE}
+#see how many variables we should include in analysis
+regfit.forwards <- regsubsets(median_weekly_earn~., earn, nvmax = 20, method = "forward")
+
+reg.summary.forwards <- summary(regfit.forwards)
+
+rsq_fit <- reg.summary.forwards$rsq #looks like last 3 variables don't improve model significantly
+
+plot(rsq_fit, type = "l") #all variables will be considered 
+```
+
+### Analysis
+The dataset was split randomly into a train and test set using an 80/20 split. Several linear regression models were tested to determine the best model, using the ml_linear_regression() function, part of the sparklyr package, concluding that the best model included all variables. This model was then tested to the unseen test data using the ml_evaluate() function, giving R2 = 0.9003, higher than the models using the training data. 
+
+```{r, echo=FALSE, include=FALSE}
+#split dataset into test and train
+data_splits <- sdf_random_split(earn, training = 0.8, testing = 0.2, seed = 42)
+earn_train <- data_splits$training
+earn_test <- data_splits$testing
+
+#linear regression
+lm_earnings <- earn_train %>%
+  ml_linear_regression(median_weekly_earn~. -quarter)
+
+summary(lm_earnings) #R2 = 0.8939
+
+lm_earnings1 <- earn_train %>%
+  ml_linear_regression(median_weekly_earn~. -n_persons -quarter)
+
+summary(lm_earnings1) #R2 = 0.8937
+
+lm_earnings2 <- earn_train %>%
+  ml_linear_regression(median_weekly_earn~.)
+
+summary(lm_earnings2) #R2 = 0.8943
+
+#lm_earnings2 is the best model
+validation_summary <- ml_evaluate(lm_earnings2, earn_test)
+
+validation_summary$r2 #0.9003 
+
+```
+
+The model was adapted, to only include social factors (age, gender, ethnic origin and race), to create a variable importance plot to visually display important social factors effecting median weekly earnings. Forward stepwise selection was used as variables are not correlated with each other, so only those factors which are important are considered.
+
+```{r, include=FALSE, echo=FALSE}
+#plotting variable importance
+lm_earnings2 <- lm(median_weekly_earn~.-year -quarter -n_persons, data = earn_train) #removed variables as interested on gender, ethnic origin and age
+
+forward <- step(lm_earnings2, direction = "forward", trace = 0)
+
+vi(forward)
+
+
+p1 <- vip(forward, 
+          num_features = length(coef(forward)), 
+          geom = "point", 
+          horizontal = TRUE, 
+          mapping = aes_string(color = "Sign"))
+
+```
+
+Linear regression was also used to model the significance of sex on median weekly earnings, showing that men had a positive impact, whilst being female had a negative impact. Data visualisations were used to show how men’s and women’s earnings differ, and how they have changed over time.
+
+Data visualisations were used to display the number employed in each industry, together with the number of job losses that occurred from 2019 to  2020, over the Covid-19 pandemic.
+
+Finally, principal component analysis was used to demonstrate the variables which impacted these job losses and in which industries.
+
+\newpage
+
+# Results
+
+
+```{r, include=TRUE, echo=FALSE}
+p2 <- p1 + ggtitle("Variable importance of Earnings")
+p2
+#red indicates a negative impact
+```
+The three factors highlighted in red in the graph above, show that being Hispanic, Latino, female or Black African American, had a negative impact on median weekly earnings. The analysis shows that age is the most significant factor determining wage, with those aged 55 years shown to have the highest earnings.  Age is a key variable effecting earnings as this tends to represent experience and the build-up of skills over time.
+
+Although sex is not deemed a significant factor in determining median wage, it is important to point out that women have a higher negative impact on earnings, whilst men have a lower positive impact. Similarly, Black or African American have a higher negative impact on earnings, whilst White has a smaller positive impact. 
+
+```{r,echo=FALSE, include=FALSE}
+#save chart
+setwd("C:/Users/User/Documents/Data Science/C7084 - Big data/Assignment")
+p2
+jpeg(file = "variable_importance1.jpeg")
+p2
+dev.off()
+```
+
+
+## How have earnings between men and women changed over time?
+```{r, echo= FALSE, include= FALSE}
+#linear regression
+lm_earnings4 <- earn_train %>%
+  ml_linear_regression(median_weekly_earn~sex)
+
+summary(lm_earnings4)
+
+#there is a strong significance that sex determines wage, negative for women
+
+pred1 <- ml_evaluate(lm_earnings4, earn_test)
+
+pred1$r2 #0.0727
+
+earn$sex <- as.factor(earn$sex)
+
+earn <- earn %>%
+  filter(sex == "Women"|sex == "Men")
+```
+
+```{r, echo= FALSE, include= TRUE, warning=FALSE}
+p3 <- earn %>%
+  ggplot(aes(x=sex, y = median_weekly_earn, fill = sex)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("dodgerblue3", "deeppink2")) +
+    geom_jitter(color="black", size=0.4, alpha=0.9) +
+    theme_classic() +
+    theme(
+      legend.position="none",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("Weekly Earnings for Men and Women") +
+    ylab("Weekly Median Earnings ($)") +
+    xlab("")
+
+p3
+#overall, the interquatile range for women falls below mens mean wage
+```
+
+There is a significant difference in weekly median earnings by gender. This could be explained in part by women choosing to work part-time and experiencing more career interruptions than men, due to accommodating care giving and unpaid obligations, with lower hourly wages and fewer hourly benefits compared to full time workers. Despite this, women with the highest earnings are still recording significantly lower earnings than those of men.
+
+```{r,echo=FALSE, include=FALSE}
+#save chart
+setwd("C:/Users/User/Documents/Data Science/C7084 - Big data/Assignment")
+p3
+jpeg(file = "M_W_earn.jpeg")
+p3
+dev.off()
+```
+
+
+```{r, echo= FALSE, include= TRUE}
+p4 <- gender %>%
+  ggplot(aes(x=year, y = median_weekly_earn, group=sex, colour = sex)) +
+  geom_line() +
+  scale_colour_manual(values = c("dodgerblue3", "deeppink2")) +
+  ggtitle("Average Earnings for Men and Women") 
+
+p4
+```
+
+The median weekly earnings of men have consistently been higher than women from 1995 to 2020, with women’s earnings being 26% lower than men in 1995 and 19% lower in 2020. These findings are surprising, despite the gender equality in educational opportunities and within society. 
+
+The impact of the financial crisis in 2010, affected men’s earnings disproportionately to women’s, who proved to be more resilient in maintaining employment. 
+
+```{r,echo=FALSE, include=FALSE}
+#save chart
+setwd("C:/Users/User/Documents/Data Science/C7084 - Big data/Assignment")
+p4
+jpeg(file = "M_W_earn1.jpeg")
+p4
+dev.off()
+```
+
+```{r, echo= FALSE, include= TRUE}
+
+p5 <- M_W %>%
+  ggplot(aes(x=year, y=wage_diff)) +
+  geom_line(colour = "red") +
+  labs(title = "Difference in Men and Women's earnings") +
+xlab("Year") +
+  ylab("Wage differences ($)") +
+  theme_bw()
+
+p5
+
+```
+
+The graph above shows that the gender pay gap has widened over the years.
+
+```{r,echo=FALSE, include=FALSE}
+#save chart
+setwd("C:/Users/User/Documents/Data Science/C7084 - Big data/Assignment")
+p5
+jpeg(file = "M_W_earn2.jpeg")
+p5
+dev.off()
+```
+
+
+
+## How have industries been effected by Covid?
+
+
+```{r,, echo= FALSE, include= TRUE}
+employed1$industry <- as.factor(employed1$industry)
+levels(employed1$industry)[levels(employed1$industry) =="Mining, quarrying, and\r\noil and gas extraction"] <- "Mining, quarrying, and oil and gas extraction"
+
+
+p6 <- employed1 %>%
+  #mutate(industry = fct_reorder(industry, industry_total)) %>%
+  ggplot(aes(industry, industry_total)) +
+  scale_y_continuous(labels = comma) +
+   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  geom_bar(stat = "identity", fill = "cornflowerblue") +
+   labs(title = "Number employed in each industry",
+       y = "Number employed",
+       x = "")
+
+p6
+
+```
+
+Their largest employment industry is within education and health services which employ over 1.5 billion. Mining, private households and agriculture have the least number of employees.
+```{r,echo=FALSE, include=FALSE}
+#save chart
+setwd("C:/Users/User/Documents/Data Science/C7084 - Big data/Assignment")
+p6
+jpeg(file = "industry.jpeg")
+p6
+dev.off()
+```
+
+```{r, echo= FALSE, include= TRUE}
+
+p7 <-covid %>%
+  #mutate(industry = fct_reorder(industry, difference)) %>%
+  ggplot(aes(y=difference, x=industry)) +
+  scale_y_continuous(labels = comma) +
+   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  geom_bar(stat = "identity", fill = "cornflowerblue") +
+   labs(title = "Number of Job Losses in Industries during the Covid-19 Pandemic", subtitle = "2019 - 2020",
+       y = "Number of Job Losses",
+       x = "")
+
+p7
+```
+
+The Covid -19 outbreak started in March 2019, significantly impacting employment with some industries having to close completely. Leisure and hospitality were hardest hit, with the loss of over 1.2 million jobs. The only sector to benefit for the pandemic was Public Administration, which showed an employment increase of nearly 100,000. Similarly, agriculture and related industries, mining, quarrying, oil and gas extraction have not been significantly impacted, losing just 32,000 and 25,400 respectively. 
+
+```{r,echo=FALSE, include=FALSE}
+#save chart
+setwd("C:/Users/User/Documents/Data Science/C7084 - Big data/Assignment")
+p7
+jpeg(file = "covid.jpeg")
+p7
+dev.off()
+```
+
+## Which factors were most influential in the loss of jobs over the Covid-19 pandemic?
+```{r, echo= FALSE, include= FALSE}
+data <- employed
+
+data <- data %>%
+  filter(race_gender == c("White", "Black or African American", "Asian", "Men", "Women"))
+
+data19 <- data %>%
+  filter(year ==2019) %>%
+  rename(race19 = race_gender, employ_19 = employ_n)
+
+
+data20 <- data %>%
+  filter(year ==2020) %>%
+  rename(race20 = race_gender, employ_20 = employ_n)
+
+
+data <- merge(data19, data20, by = "industry")
+
+data <- data %>%
+  mutate(difference = (employ_20 - employ_19))
+
+data <- data[,c(1,4,14)] 
+
+data <- na.omit(data)
+
+
+
+data1 <- data %>%
+  group_by(race19) %>%
+  mutate(row = row_number()) %>%
+  pivot_wider(names_from = race19, values_from = difference)
+  
+  
+data1 <- data1[,-c(2)]
+
+
+data2 <- data1 %>%
+  group_by(industry) %>%
+  summarise(total_white = sum(White), 
+            total_black = sum(`Black or African American`),
+            total_asian = sum(Asian),
+            total_men = sum(Men),
+            total_women = sum(Women)
+            )
+
+data3 <- data2
+
+r <- data3$industry
+
+data2 <- data2[,-1 ]
+
+row.names(data2) <- r
+
+```
+
+```{r, echo= FALSE, include= FALSE}
+#PCA
+data1 <- na.omit(data1)
+
+
+data2 <- data1 %>%
+  group_by(industry) %>%
+  summarise(White = sum(White), 
+            Black = sum(`Black or African American`),
+            Asian = sum(Asian),
+            Men = sum(Men),
+            Women = sum(Women)
+            )
+
+data3 <- data2
+
+r <- data2$industry
+
+data2 <- data2[,-1 ]
+
+row.names(data2) <- r
+
+#apply(data20201, 2, var)
+
+#apply(data20201, 2, var)
+
+pr.out <- prcomp(data2, scale. = F, center = T)
+print(pr.out) # PC1 total_white and total_women are the biggest contributors
+              # PC2 total_black and total_asian are the biggest contributors
+summary(pr.out) # PC2 accounts for 93.9% of variation
+names(pr.out)
+
+
+plot(pr.out, type="l")
+
+
+```
+
+```{r, echo=FALSE, include=TRUE, fig.dim = c(10, 10)}
+biplot(pr.out, main = "PCA of job losses in ethnic groups from 2019 to 2020", xlab = "PC1 (68.0% explained var.)", ylab = "PC2 (28.4% explained var.)")
+
+#more women lost jobs 
+
+#there is a lack of correlation between white and black and asian, a strong correlation between asian and black
+
+#length of line: the first 2 PC's contain lots of information about all elements 
+```
+
+The race variable shows that the Black and Asian factors influenced job losses and are strongly correlated with each other, those who were less likely to lose their jobs over Covid-19 are those who are white and men. According to PC1, women were less likely to lose their jobs, however PC2, which makes up 28.4% of the variance, indicated that women made up a significant number of job losses.
+The factors which negatively influenced these job losses were Black and Asian, with those less likely to lose jobs being those who are white or male.
+
+
+```{r,echo=FALSE, include=FALSE}
+#save chart
+setwd("C:/Users/User/Documents/Data Science/C7084 - Big data/Assignment")
+biplot
+jpeg(file = "biplot.jpeg")
+biplot
+dev.off()
+```
+
+
+
+```{r, echo= FALSE, include= FALSE}
+spark_disconnect(sc)
+```
+
+\newpage
+
+# Discussion
+Despite evidence that US employers discriminate against older workers, these findings conclude that age and, therefore, experience is the most significant factor in determining earnings. Increased labour participation within this group could be due to improved health, and concerns about the affordability of retirement.  Employer’s value the positive contribution and significant skills filling the gap of a shrinking younger generation. 
+
+This analysis shows that being part of an ethnic minority group, has a negative impact on earnings, indicating that these factors are still pervasive and persistent in US society. It was found that ethnic and racial minorities experienced discrimination and marginalization and could serve as a hindrance to upward mobility when seeking to escape poverty. This discrimination in the form of segregation and poor education may be the factor most impacting earnings within this group, rather than direct employer discrimination.
+
+Under federal law gender discrimination in which an employee is treated differently or unfairly based on their gender is illegal, however, this analysis concluded that gender inequality is not only prevalent, but the wage gap has increased since 1995, in the US. This research clearly illustrates that barriers exist for women, most likely mothers in the workplace.  A study published by Forbes (2021) said that "At the same time, given that even men with low grades go on to attain higher leadership roles than women, this study highlights perhaps the lack of barriers that men face in securing greater leadership opportunities." It is important to note than many of these factors can be directly and indirectly influenced by discrimination based on gender, race or ethnicity, for example, societal and structural sexism often influences the jobs that women work in, taking on the majority of care giving, house-work and other unpaid responsibilities that men do not. Experts have attributed the estimated 38% of the wage gap that is not explained by traditional, measurable factors, such as hours worked and years of experience, to the effects of discrimination. This discrimination most likely affects far more than the reported 38% of the wage gap.
+
+During the Covid-19 pandemic the leisure and hospitality sector was hit the hardest with 1.2million job losses due to social restrictions.  Public administration was the only industry shown to experience job growth during the pandemic, as it presented a massive challenge to the administration.  The public sector bears the responsibility for the long-term resilience and stability of society and for shaping public outcomes through policy-making and public institutions, with unprecedented levels of collaboration being required for the race for a vaccine and to test and trace. The Covid-19 crisis has underlined the importance of public-sector capacity to handle emergencies and particular capabilities required to solve societal challenges, most importantly the protection of public health. 
+
+The importance of the results of this analysis highlights areas that are critical for re-evaluation in the aftermath of the Covid-19 crisis. The new US administration will need to adapt and learn and have the capacity to align public services and citizens needs in order to rebuild the economy and society.
+
+
+\newpage
+
+## References
+Baker, B. 2016. *School finance & the distribution on equal educational opportunity in the post-recession US*. Journal of Social Issues. 72(4), pp. 629-655
+
+Dabla-Norris, E., Kochhar, K., Suphaphiphat, N., Ricka, F. & Tsounta, E. 2015. *Causes and consequence of income inequality: A Global perspective*. International Monetary Fund, Washington D.C.
+
+Fowers, A. 2020. More than a quarter of workers faced job losses or unemployment in April. [online] *The Washington Post*. Available at: https://www.washingtonpost.com/business/2020/05/08/more-than-quarter-workers-faced-job-losses-or-underemployment-april/?itid=lk_readmore_manual_14 (Accessed: 9th April. 2021)
+
+Long, H. and Van Dam, A. 2020. US unemployment rate soars to 14.7percent, the worst since the Depression era. [online]. *The Washington Post*. Available at: https://www.washingtonpost.com/business/2020/05/08/april-2020-jobs-report/ (Accessed: 9th April 2021)
+
+National Center for Education Statistics, 2015. The condition of education 2015. [online]. *U.S.Department of Education*. AVailable at:https://nces.ed.gov/pubs2015/2015144.pdf (Accessed: 9th April.2021)
+
+OECD. 2020. Inequality. [online]. *OECD*. Available at: https://www.oecd.org/social/inequality.htm (Accessed: 9th April 2021)
+
+Robinson, B., 2021. Gender discrimination is still alive and well in the workplace 2021. [online]. *Forbes*. Available at: https://www.forbes.com/sites/bryanrobinson/2021/02/15/gender-discrimination-is-still-alive-and-well-in-the-workplace-in-2021/ (Accessed: 11th April 2021)
+
+US Bureau of Labour Statistics, 2021. Labor force statistics from the current population survey. [online]. *US Bureau of Labour Statistics*. Available at: https://www.bls.gov/cps/tables.htm#otheryears (Accessed: 7th April. 2021)
